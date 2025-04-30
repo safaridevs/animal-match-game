@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>🐾 Animal Match-Up Game</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        background: #f0f0f0;
+        margin: 0;
+        padding: 0;
+        text-align: center;
+      }
+
+      h1 {
+        margin-top: 10px;
+      }
+
+      .tabs {
+        display: flex;
+        justify-content: center;
+        margin-top: 20px;
+      }
+
+      .tab {
+        padding: 10px 20px;
+        cursor: pointer;
+        background: #ddd;
+        margin: 0 5px;
+        border-radius: 5px 5px 0 0;
+      }
+
+      .tab.active {
+        background: #4caf50;
+        color: white;
+      }
+
+      .tab-content {
+        display: none;
+        padding: 20px;
+        background: white;
+        border-radius: 0 0 10px 10px;
+      }
+
+      .tab-content.active {
+        display: block;
+      }
+
+      .game-board {
+        display: grid;
+        grid-template-columns: repeat(4, 100px);
+        gap: 10px;
+        justify-content: center;
+        margin: 20px auto;
+      }
+
+      .card {
+        background-color: #4caf50;
+        width: 100px;
+        height: 100px;
+        font-size: 40px;
+        color: white;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        cursor: pointer;
+        border-radius: 8px;
+        user-select: none;
+      }
+
+      .card.flipped {
+        background-color: #fff;
+        color: #000;
+        cursor: default;
+      }
+
+      .card.matched {
+        background-color: #ffd700 !important;
+        color: #000;
+      }
+
+      #stats,
+      #timer-hard,
+      #hard-score {
+        font-size: 18px;
+        margin: 10px;
+      }
+
+      table {
+        margin: 0 auto;
+        border-collapse: collapse;
+        width: 60%;
+      }
+
+      th,
+      td {
+        border: 1px solid #ddd;
+        padding: 8px;
+      }
+
+      th {
+        background-color: #4caf50;
+        color: white;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>🐾 Animal Match-Up Game</h1>
+
+    <div class="tabs">
+      <div class="tab active" data-tab="easy">Easy</div>
+      <div class="tab" data-tab="medium">Medium</div>
+      <div class="tab" data-tab="hard">Hard</div>
+    </div>
+
+    <div id="easy" class="tab-content active"></div>
+    <div id="medium" class="tab-content"></div>
+    <div id="hard" class="tab-content"></div>
+
+    <!-- Sounds -->
+    <audio
+      id="matchSound"
+      src="https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg"
+    ></audio>
+    <audio
+      id="mismatchSound"
+      src="https://actions.google.com/sounds/v1/cartoon/wood_plank_flicks.ogg"
+    ></audio>
+    <audio
+      id="winSound"
+      src="https://actions.google.com/sounds/v1/cartoon/concussive_hit_guitar_boing.ogg"
+    ></audio>
+
+    <script>
+      const emojis = ["🐶", "🐱", "🦁", "🐷", "🐸", "🐼", "🐵", "🐰"];
+      const matchSound = document.getElementById("matchSound");
+      const mismatchSound = document.getElementById("mismatchSound");
+      const winSound = document.getElementById("winSound");
+
+      window.currentInterval = null;
+
+      function shuffle(array) {
+        return array.sort(() => 0.5 - Math.random());
+      }
+
+      function createGameBoard(container, options = {}) {
+        if (window.currentInterval) {
+          clearInterval(window.currentInterval);
+          window.currentInterval = null;
+        }
+
+        const cards = shuffle([...emojis, ...emojis]);
+        container.innerHTML = "";
+
+        if (options.statsId) {
+          container.innerHTML += `<div id="${options.statsId}">⏱️ Time: <span id="time">0</span>s | 🧠 Score: <span id="score">0</span></div>`;
+        }
+
+        if (options.timerId) {
+          container.innerHTML += `
+        <div id="${options.timerId}">⏳ Time Left: <span id="timeLeft">${options.customTime}</span>s</div>
+        <div id="hard-score">🧠 Score: <span id="hardScore">0</span></div>
+      `;
+        }
+
+        const board = document.createElement("div");
+        board.classList.add("game-board");
+        container.appendChild(board);
+
+        let firstCard = null;
+        let lockBoard = false;
+        let matches = 0;
+        let score = 0;
+        let time = 0;
+        let timeLeft = options.customTime || 60;
+        let timerStarted = false;
+        let interval = null;
+
+        function updateStats() {
+          if (options.statsId) {
+            document.querySelector(`#${options.statsId} #score`).textContent =
+              score;
+            document.querySelector(`#${options.statsId} #time`).textContent =
+              time;
+          }
+          if (options.timerId) {
+            document.querySelector(
+              `#${options.timerId} #timeLeft`
+            ).textContent = timeLeft;
+            document.getElementById("hardScore").textContent = score;
+          }
+        }
+
+        function endGame(message) {
+          clearInterval(interval);
+          window.currentInterval = null;
+          winSound.play();
+          setTimeout(() => {
+            if (options.leaderboard) {
+              const name = prompt(message + " Enter your name:") || "Anonymous";
+              const leaderboard =
+                JSON.parse(localStorage.getItem("leaderboard")) || [];
+              leaderboard.push({ name, score, time });
+              leaderboard.sort((a, b) => a.time - b.time || b.score - a.score);
+              localStorage.setItem(
+                "leaderboard",
+                JSON.stringify(leaderboard.slice(0, 5))
+              );
+              renderLeaderboard();
+            } else {
+              alert(message);
+            }
+          }, 500);
+        }
+
+        if (options.leaderboard) {
+          const table = document.createElement("table");
+          table.innerHTML = `
+        <thead><tr><th>Player</th><th>Time</th><th>Score</th></tr></thead>
+        <tbody id="leaderboard-body"></tbody>`;
+          container.appendChild(table);
+          renderLeaderboard();
+        }
+
+        function renderLeaderboard() {
+          const lb = JSON.parse(localStorage.getItem("leaderboard")) || [];
+          const tbody = document.getElementById("leaderboard-body");
+          if (tbody) {
+            tbody.innerHTML = lb
+              .map(
+                (l) =>
+                  `<tr><td>${l.name}</td><td>${l.time}</td><td>${l.score}</td></tr>`
+              )
+              .join("");
+          }
+        }
+
+        cards.forEach((emoji, index) => {
+          const card = document.createElement("div");
+          card.classList.add("card");
+          card.dataset.emoji = emoji;
+          card.dataset.index = index;
+          card.textContent = "❓";
+          board.appendChild(card);
+
+          card.addEventListener("click", () => {
+            if (lockBoard || card.classList.contains("flipped")) return;
+
+            if (!timerStarted && (options.statsId || options.timerId)) {
+              timerStarted = true;
+              interval = setInterval(() => {
+                if (options.statsId) time++;
+                if (options.timerId) {
+                  timeLeft--;
+                  if (timeLeft <= 0) {
+                    endGame(`⏱️ Time's up! Final score: ${score}`);
+                    return;
+                  }
+                }
+                updateStats();
+              }, 1000);
+              window.currentInterval = interval;
+            }
+
+            card.classList.add("flipped");
+            card.textContent = emoji;
+
+            if (!firstCard) {
+              firstCard = card;
+            } else {
+              lockBoard = true;
+              setTimeout(() => {
+                if (firstCard.dataset.emoji === card.dataset.emoji) {
+                  matchSound.play();
+                  firstCard.classList.add("matched");
+                  card.classList.add("matched");
+                  matches++;
+                  if (options.statsId) score += 10;
+                  if (options.timerId) score += timeLeft;
+                  if (matches === emojis.length) {
+                    endGame(
+                      `🎉 You matched all in ${time}s with score ${score}`
+                    );
+                  }
+                } else {
+                  mismatchSound.play();
+                  firstCard.classList.remove("flipped");
+                  card.classList.remove("flipped");
+                  firstCard.textContent = "❓";
+                  card.textContent = "❓";
+                  if (options.statsId) score = Math.max(0, score - 2);
+                }
+                firstCard = null;
+                lockBoard = false;
+                updateStats();
+              }, 800);
+            }
+          });
+        });
+
+        updateStats();
+      }
+
+      // Tab switching logic
+      const tabs = document.querySelectorAll(".tab");
+      const tabContents = document.querySelectorAll(".tab-content");
+      tabs.forEach((tab) => {
+        tab.addEventListener("click", () => {
+          tabs.forEach((t) => t.classList.remove("active"));
+          tab.classList.add("active");
+          tabContents.forEach((c) => c.classList.remove("active"));
+          const target = document.getElementById(tab.dataset.tab);
+          target.classList.add("active");
+
+          if (tab.dataset.tab === "easy") createGameBoard(target);
+          if (tab.dataset.tab === "medium")
+            createGameBoard(target, {
+              statsId: "stats-medium",
+              leaderboard: true,
+            });
+          if (tab.dataset.tab === "hard") {
+            target.innerHTML = `
+          <label for="customTime">⏱ Choose your countdown time: </label>
+          <select id="customTime">
+            <option value="60">60 seconds</option>
+            <option value="45">45 seconds</option>
+            <option value="30">30 seconds</option>
+            <option value="20">20 seconds</option>
+            <option value="15">15 seconds</option>
+          </select>
+          <button id="startHardGame" style="margin-left: 10px;">Start Challenge</button>
+        `;
+            document
+              .getElementById("startHardGame")
+              .addEventListener("click", () => {
+                const selectedTime = parseInt(
+                  document.getElementById("customTime").value
+                );
+                createGameBoard(target, {
+                  timerId: "timer-hard",
+                  customTime: selectedTime,
+                });
+              });
+          }
+        });
+      });
+
+      // Load default
+      createGameBoard(document.getElementById("easy"));
+    </script>
+  </body>
+</html>
